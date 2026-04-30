@@ -1,0 +1,45 @@
+{
+  "name": "corenote",
+  "version": "0.1.0",
+  "description": "A minimal local-first notes app for Windows.",
+  "main": "./out/main/index.js",
+  "author": "Noah Langthaler",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "preview": "electron-vite preview",
+    "rebuild:sqlite": "electron-rebuild -f -w better-sqlite3",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "dependencies": {
+    "@tiptap/extension-placeholder": "^2.27.1",
+    "@tiptap/extension-task-item": "^2.27.1",
+    "@tiptap/extension-task-list": "^2.27.1",
+    "@tiptap/extension-underline": "^2.27.1",
+    "@tiptap/react": "^2.27.1",
+    "@tiptap/starter-kit": "^2.27.1",
+    "better-sqlite3": "^11.10.0",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@electron/rebuild": "^4.0.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.13.1",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.1.1",
+    "electron-vite": "^3.0.0",
+    "playwright": "^1.59.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}
