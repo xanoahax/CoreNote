@@ -324,31 +324,6 @@ button:disabled {
   flex: 1;
 }
 
-.note-header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.header-icon-button {
-  display: inline-grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid #333333;
-  border-radius: 8px;
-  background: #202020;
-  color: #d4d4d4;
-  cursor: pointer;
-}
-
-.header-icon-button:hover {
-  border-color: #4a4a4a;
-  background: #2a2a2a;
-  color: #ffffff;
-}
-
 .spin-icon {
   animation: spin 1s linear infinite;
 }
@@ -878,6 +853,31 @@ button:disabled {
   flex: 0 0 9px;
   border: 1px solid rgb(255 255 255 / 0.3);
   border-radius: 50%;
+}
+
+.update-refresh-button {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  z-index: 88;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  background: #202020;
+  color: #d4d4d4;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.22);
+  cursor: pointer;
+}
+
+.update-refresh-button:hover,
+.update-refresh-button:focus-visible {
+  border-color: #4a4a4a;
+  background: #2a2a2a;
+  color: #ffffff;
+  outline: none;
 }
 
 .update-panel {

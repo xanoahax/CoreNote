@@ -493,7 +493,7 @@ export function App() {
   )
 
   const updateIsBusy = updateStatus.state === 'checking' || updateStatus.state === 'downloading'
-  const updatePanelIsVisible = updateStatus.state !== 'idle'
+  const updatePanelIsVisible = ['available', 'downloading', 'downloaded', 'error'].includes(updateStatus.state)
   const updateButtonTitle = updateStatus.isPackaged ? 'Check for updates' : 'Updates are available in installed builds'
 
   const updateAction = useMemo(() => {
@@ -513,7 +513,7 @@ export function App() {
       }
     }
 
-    if (updateStatus.state === 'not-available' || updateStatus.state === 'error' || updateStatus.state === 'disabled') {
+    if (updateStatus.state === 'error') {
       return {
         label: 'Check',
         icon: RefreshCw,
@@ -922,17 +922,6 @@ export function App() {
                   {saveState === 'saving' ? 'Saving' : saveState === 'saved' ? 'Saved' : activePreview}
                 </span>
               </div>
-              <div className="note-header-actions">
-                <button
-                  className="header-icon-button"
-                  type="button"
-                  title={updateButtonTitle}
-                  onClick={checkForUpdates}
-                  disabled={updateIsBusy}
-                >
-                  <RefreshCw size={16} className={updateIsBusy ? 'spin-icon' : undefined} />
-                </button>
-              </div>
             </header>
             <EditorContent editor={editor} className="editor-frame" onContextMenu={openEditorMenu} />
           </>
@@ -1089,6 +1078,18 @@ export function App() {
             <span className="format-status-plain">Plain</span>
           )}
         </div>
+      ) : null}
+
+      {activeNote ? (
+        <button
+          className="update-refresh-button"
+          type="button"
+          title={updateButtonTitle}
+          onClick={checkForUpdates}
+          disabled={updateIsBusy}
+        >
+          <RefreshCw size={16} className={updateIsBusy ? 'spin-icon' : undefined} />
+        </button>
       ) : null}
 
       {updatePanelIsVisible ? (
