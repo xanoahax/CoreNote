@@ -40,6 +40,7 @@ type FormatState = {
 
 const slashCommands = new Map<string, SlashCommand>()
 const checkboxCommandAliases = ['/check', '/checklist', '/todo', '/task']
+const collapsibleSectionCommandAliases = ['/collapsible-section', '/collapsible', '/section', '/toggle-section']
 const textColors = [
   { id: 'white', label: 'White', color: '#ffffff' },
   { id: 'accent', label: 'Accent', color: '#b7741d' },
@@ -66,6 +67,13 @@ const folderItems: Record<Exclude<SlashMenuMode, 'root'>, SlashMenuItem[]> = {
   ],
   insert: [
     { id: 'checkbox', label: 'Checkbox', kind: 'command', commandName: '/checkbox', aliases: checkboxCommandAliases },
+    {
+      id: 'collapsible-section',
+      label: 'Collapsible Section',
+      kind: 'command',
+      commandName: '/collapsible-section',
+      aliases: collapsibleSectionCommandAliases
+    },
     { id: 'divider', label: 'Divider', kind: 'command', commandName: '/divider', aliases: ['/hr', '/line'] }
   ],
   textColor: textColors.map((textColor) => ({
@@ -365,6 +373,41 @@ const createDivider = (view: EditorView): boolean => {
   return true
 }
 
+const createCollapsibleSection = (view: EditorView): boolean => {
+  const { state } = view
+  const collapsibleSectionNode = state.schema.nodes.collapsibleSection
+  const collapsibleSectionTitleNode = state.schema.nodes.collapsibleSectionTitle
+  const collapsibleSectionContentNode = state.schema.nodes.collapsibleSectionContent
+  const paragraphNode = state.schema.nodes.paragraph
+
+  if (
+    !collapsibleSectionNode ||
+    !collapsibleSectionTitleNode ||
+    !collapsibleSectionContentNode ||
+    !paragraphNode ||
+    !state.selection.empty
+  ) {
+    return false
+  }
+
+  const { $from } = state.selection
+  const blockFrom = $from.before($from.depth)
+  const blockTo = $from.after($from.depth)
+  const title = collapsibleSectionTitleNode.create(null, state.schema.text('Section title'))
+  const bodyParagraph = paragraphNode.create()
+  const sectionContent = collapsibleSectionContentNode.create(null, bodyParagraph)
+  const section = collapsibleSectionNode.create({ open: true }, [title, sectionContent])
+  const trailingParagraph = paragraphNode.create()
+  const bodyCursorPosition = blockFrom + 1 + title.nodeSize + 2
+  const tr = state.tr.replaceWith(blockFrom, blockTo, Fragment.fromArray([section, trailingParagraph]))
+
+  tr.setSelection(TextSelection.near(tr.doc.resolve(bodyCursorPosition)))
+
+  view.dispatch(tr.scrollIntoView())
+
+  return true
+}
+
 const toggleHeading = (view: EditorView, level: 1 | 2): boolean => {
   const { state } = view
   const headingNode = state.schema.nodes.heading
@@ -395,6 +438,7 @@ export const SlashFormatting = Extension.create({
     slashCommands.set('/italic', (view) => toggleStoredMark(view, 'italic'))
     slashCommands.set('/underline', (view) => toggleStoredMark(view, 'underline'))
     slashCommands.set('/clear', clearStoredFormatting)
+    slashCommands.set('/collapsible-section', createCollapsibleSection)
     slashCommands.set('/divider', createDivider)
     slashCommands.set('/hr', createDivider)
     slashCommands.set('/line', createDivider)
@@ -403,6 +447,9 @@ export const SlashFormatting = Extension.create({
     slashCommands.set('/checkbox', createCheckbox)
     checkboxCommandAliases.forEach((alias) => {
       slashCommands.set(alias, createCheckbox)
+    })
+    collapsibleSectionCommandAliases.forEach((alias) => {
+      slashCommands.set(alias, createCollapsibleSection)
     })
     textColors.forEach((textColor) => {
       slashCommands.set(`/${textColor.id}`, (view) => setStoredTextColor(view, textColor.color))

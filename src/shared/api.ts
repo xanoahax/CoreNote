@@ -1,4 +1,5 @@
 import type { CreateNoteInput, Note, NoteSummary, NoteUpdate, SearchNotesInput } from './notes'
+import type { UpdateStatus } from './updates'
 
 export type CoreNoteApi = {
   listNotes: () => Promise<NoteSummary[]>
@@ -10,6 +11,11 @@ export type CoreNoteApi = {
   minimizeWindow: () => Promise<void>
   toggleMaximizeWindow: () => Promise<void>
   closeWindow: () => Promise<void>
+  getUpdateStatus: () => Promise<UpdateStatus>
+  checkForUpdates: () => Promise<UpdateStatus>
+  downloadUpdate: () => Promise<UpdateStatus>
+  installUpdate: () => Promise<void>
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
 }
 
 declare global {

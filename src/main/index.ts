@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, nativeImage, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import { NotesDatabase } from './database'
+import { checkForUpdatesAfterStartup, configureAutoUpdater, registerUpdateIpc } from './updater'
 import type { CreateNoteInput, NoteUpdate, SearchNotesInput } from '../shared/notes'
 
 let notesDb: NotesDatabase
@@ -43,9 +44,20 @@ const createWindow = (): void => {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
+  const showMainWindow = (): void => {
+    if (mainWindow.isDestroyed() || mainWindow.isVisible()) {
+      return
+    }
+
     mainWindow.show()
-  })
+    mainWindow.focus()
+  }
+
+  mainWindow.on('ready-to-show', showMainWindow)
+  mainWindow.webContents.on('did-finish-load', showMainWindow)
+  setTimeout(() => {
+    showMainWindow()
+  }, 1600)
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
@@ -89,8 +101,11 @@ const registerIpc = (): void => {
 
 app.whenReady().then(() => {
   notesDb = new NotesDatabase()
+  configureAutoUpdater()
   registerIpc()
+  registerUpdateIpc()
   createWindow()
+  checkForUpdatesAfterStartup()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

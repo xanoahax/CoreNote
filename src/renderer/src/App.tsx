@@ -7,6 +7,11 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import {
+  CollapsibleSection,
+  CollapsibleSectionContent,
+  CollapsibleSectionTitle
+} from './extensions/collapsibleSection'
 import { SlashFormatting } from './extensions/slashFormatting'
 import { TextColor } from './extensions/textColor'
 import {
@@ -14,6 +19,7 @@ import {
   Clipboard,
   ChevronRight,
   Copy,
+  Download,
   Scissors,
   Eraser,
   FileText,
@@ -23,6 +29,8 @@ import {
   Italic,
   Minus,
   Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
   Square,
   Trash2,
@@ -31,6 +39,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import type { Note, NoteSummary } from '../../shared/notes'
+import type { UpdateStatus } from '../../shared/updates'
 
 const coreNoteLogoUrl = new URL('../../../assets/corenote_logo_new.png', import.meta.url).href
 
@@ -184,6 +193,11 @@ const plainFormatState: ActiveFormatState = {
   heading: null,
   color: null
 }
+const plainUpdateStatus: UpdateStatus = {
+  state: 'idle',
+  currentVersion: '',
+  isPackaged: false
+}
 
 const formatNoteDate = (value: string): string => {
   const date = new Date(value)
@@ -299,6 +313,7 @@ export function App() {
   const [editorMenu, setEditorMenu] = useState<{ x: number; y: number } | null>(null)
   const [slashSuggestion, setSlashSuggestion] = useState<SlashSuggestion | null>(null)
   const [activeFormats, setActiveFormats] = useState<ActiveFormatState>(plainFormatState)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(plainUpdateStatus)
   const saveTimerRef = useRef<number | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const activeNoteRef = useRef<Note | null>(null)
@@ -315,6 +330,9 @@ export function App() {
       TaskItem.configure({
         nested: true
       }),
+      CollapsibleSection,
+      CollapsibleSectionTitle,
+      CollapsibleSectionContent,
       TextColor,
       SlashFormatting,
       Placeholder.configure({
@@ -473,6 +491,46 @@ export function App() {
     },
     [closeEditorMenu, editor]
   )
+
+  const updateIsBusy = updateStatus.state === 'checking' || updateStatus.state === 'downloading'
+  const updatePanelIsVisible = updateStatus.state !== 'idle'
+  const updateButtonTitle = updateStatus.isPackaged ? 'Check for updates' : 'Updates are available in installed builds'
+
+  const updateAction = useMemo(() => {
+    if (updateStatus.state === 'available') {
+      return {
+        label: 'Download',
+        icon: Download,
+        run: () => window.coreNote.downloadUpdate().then(setUpdateStatus)
+      }
+    }
+
+    if (updateStatus.state === 'downloaded') {
+      return {
+        label: 'Restart',
+        icon: RotateCcw,
+        run: () => window.coreNote.installUpdate()
+      }
+    }
+
+    if (updateStatus.state === 'not-available' || updateStatus.state === 'error' || updateStatus.state === 'disabled') {
+      return {
+        label: 'Check',
+        icon: RefreshCw,
+        run: () => window.coreNote.checkForUpdates().then(setUpdateStatus)
+      }
+    }
+
+    return null
+  }, [updateStatus.state])
+
+  const checkForUpdates = useCallback(() => {
+    if (updateIsBusy) {
+      return
+    }
+
+    window.coreNote.checkForUpdates().then(setUpdateStatus)
+  }, [updateIsBusy])
 
   const loadNotes = useCallback(async () => {
     try {
@@ -669,6 +727,12 @@ export function App() {
   }, [loadNotes])
 
   useEffect(() => {
+    window.coreNote.getUpdateStatus().then(setUpdateStatus)
+
+    return window.coreNote.onUpdateStatus(setUpdateStatus)
+  }, [])
+
+  useEffect(() => {
     editorRef.current = editor
   }, [editor])
 
@@ -778,6 +842,8 @@ export function App() {
     }
   }, [])
 
+  const UpdateActionIcon = updateAction?.icon
+
   return (
     <main className="app-shell">
       <div className="titlebar-drag" />
@@ -855,6 +921,17 @@ export function App() {
                 <span>
                   {saveState === 'saving' ? 'Saving' : saveState === 'saved' ? 'Saved' : activePreview}
                 </span>
+              </div>
+              <div className="note-header-actions">
+                <button
+                  className="header-icon-button"
+                  type="button"
+                  title={updateButtonTitle}
+                  onClick={checkForUpdates}
+                  disabled={updateIsBusy}
+                >
+                  <RefreshCw size={16} className={updateIsBusy ? 'spin-icon' : undefined} />
+                </button>
               </div>
             </header>
             <EditorContent editor={editor} className="editor-frame" onContextMenu={openEditorMenu} />
@@ -1011,6 +1088,23 @@ export function App() {
           ) : (
             <span className="format-status-plain">Plain</span>
           )}
+        </div>
+      ) : null}
+
+      {updatePanelIsVisible ? (
+        <div className="update-panel" role="status">
+          <span>{updateStatus.message ?? 'Update status unavailable.'}</span>
+          {updateStatus.state === 'downloading' && typeof updateStatus.percent === 'number' ? (
+            <div className="update-progress" aria-label="Update download progress">
+              <span style={{ width: `${Math.max(0, Math.min(100, updateStatus.percent))}%` }} />
+            </div>
+          ) : null}
+          {updateAction ? (
+            <button type="button" onClick={updateAction.run} disabled={updateIsBusy}>
+              {UpdateActionIcon ? <UpdateActionIcon size={15} /> : null}
+              <span>{updateAction.label}</span>
+            </button>
+          ) : null}
         </div>
       ) : null}
 
