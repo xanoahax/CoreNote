@@ -41,6 +41,7 @@ type FormatState = {
 const slashCommands = new Map<string, SlashCommand>()
 const checkboxCommandAliases = ['/check', '/checklist', '/todo', '/task']
 const collapsibleSectionCommandAliases = ['/collapsible-section', '/collapsible', '/section', '/toggle-section']
+const imageCommandAliases = ['/img', '/picture', '/photo']
 const textColors = [
   { id: 'white', label: 'White', color: '#ffffff' },
   { id: 'accent', label: 'Accent', color: '#b7741d' },
@@ -74,6 +75,7 @@ const folderItems: Record<Exclude<SlashMenuMode, 'root'>, SlashMenuItem[]> = {
       commandName: '/collapsible-section',
       aliases: collapsibleSectionCommandAliases
     },
+    { id: 'image', label: 'Image', kind: 'command', commandName: '/image', aliases: imageCommandAliases },
     { id: 'divider', label: 'Divider', kind: 'command', commandName: '/divider', aliases: ['/hr', '/line'] }
   ],
   textColor: textColors.map((textColor) => ({
@@ -408,6 +410,11 @@ const createCollapsibleSection = (view: EditorView): boolean => {
   return true
 }
 
+const requestImageInsert = (): boolean => {
+  window.dispatchEvent(new CustomEvent('corenote:insert-image'))
+  return true
+}
+
 const toggleHeading = (view: EditorView, level: 1 | 2): boolean => {
   const { state } = view
   const headingNode = state.schema.nodes.heading
@@ -439,6 +446,7 @@ export const SlashFormatting = Extension.create({
     slashCommands.set('/underline', (view) => toggleStoredMark(view, 'underline'))
     slashCommands.set('/clear', clearStoredFormatting)
     slashCommands.set('/collapsible-section', createCollapsibleSection)
+    slashCommands.set('/image', requestImageInsert)
     slashCommands.set('/divider', createDivider)
     slashCommands.set('/hr', createDivider)
     slashCommands.set('/line', createDivider)
@@ -450,6 +458,9 @@ export const SlashFormatting = Extension.create({
     })
     collapsibleSectionCommandAliases.forEach((alias) => {
       slashCommands.set(alias, createCollapsibleSection)
+    })
+    imageCommandAliases.forEach((alias) => {
+      slashCommands.set(alias, requestImageInsert)
     })
     textColors.forEach((textColor) => {
       slashCommands.set(`/${textColor.id}`, (view) => setStoredTextColor(view, textColor.color))

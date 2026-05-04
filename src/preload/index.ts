@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { CoreNoteApi } from '../shared/api'
+import type { SaveImageInput } from '../shared/images'
 import type { CreateNoteInput, NoteUpdate, SearchNotesInput } from '../shared/notes'
 import type { UpdateStatus } from '../shared/updates'
 
@@ -17,6 +18,8 @@ const api: CoreNoteApi = {
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   downloadUpdate: () => ipcRenderer.invoke('updates:download'),
   installUpdate: () => ipcRenderer.invoke('updates:install'),
+  chooseImage: () => ipcRenderer.invoke('images:choose'),
+  saveImage: (input: SaveImageInput) => ipcRenderer.invoke('images:save', input),
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void => {
       callback(status)

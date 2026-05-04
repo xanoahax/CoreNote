@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
-import { Fragment } from '@tiptap/pm/model'
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import { NoteImage } from './extensions/noteImage'
 import {
   CollapsibleSection,
   CollapsibleSectionContent,
@@ -15,6 +16,9 @@ import {
 import { SlashFormatting } from './extensions/slashFormatting'
 import { TextColor } from './extensions/textColor'
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
   Clipboard,
   ChevronRight,
@@ -40,6 +44,7 @@ import {
 } from 'lucide-react'
 import type { Note, NoteSummary } from '../../shared/notes'
 import type { UpdateStatus } from '../../shared/updates'
+import type { NoteImageAlign, NoteImageSize } from '../../shared/images'
 
 const coreNoteLogoUrl = new URL('../../../assets/corenote_logo_new.png', import.meta.url).href
 
@@ -183,6 +188,17 @@ type FormatBadge = {
   label: string
   color?: string
 }
+type ImageMenuState = {
+  x: number
+  y: number
+  position: number
+  align: NoteImageAlign
+  size: NoteImageSize
+}
+type NoteImageMatch = {
+  node: ProseMirrorNode
+  position: number
+}
 
 const defaultNoteTitle = 'New Note'
 const defaultNoteTitles = new Set([defaultNoteTitle, 'Neue Notiz'])
@@ -278,6 +294,69 @@ const setEditorTextColor = (editor: Editor, color: string): void => {
   editor.view.dispatch(tr)
 }
 
+const isNoteImageTarget = (target: EventTarget | null): boolean =>
+  target instanceof Element && Boolean(target.closest('figure[data-type="note-image"]'))
+
+const readNoteImageAlign = (value: unknown): NoteImageAlign => (value === 'left' || value === 'right' ? value : 'center')
+
+const readNoteImageSize = (value: unknown): NoteImageSize => (value === 'small' || value === 'large' ? value : 'medium')
+
+const findNoteImageAtPosition = (editor: Editor, documentPosition: number): NoteImageMatch | null => {
+  let match: NoteImageMatch | null = null
+
+  editor.state.doc.descendants((node, position) => {
+    if (match) {
+      return false
+    }
+
+    if (
+      node.type.name === 'noteImage' &&
+      position <= documentPosition &&
+      documentPosition <= position + node.nodeSize
+    ) {
+      match = { node, position }
+      return false
+    }
+
+    return true
+  })
+
+  return match
+}
+
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.addEventListener('load', () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error('Could not read image.'))
+      }
+    })
+    reader.addEventListener('error', () => {
+      reject(new Error('Could not read image.'))
+    })
+    reader.readAsDataURL(file)
+  })
+
+const insertEditorImage = (editor: Editor, image: { src: string; alt: string }): void => {
+  editor
+    .chain()
+    .focus()
+    .insertContent({
+      type: 'noteImage',
+      attrs: {
+        src: image.src,
+        alt: image.alt,
+        align: 'center',
+        size: 'medium'
+      }
+    })
+    .run()
+}
+
 const insertEditorDivider = (editor: Editor): void => {
   const { state } = editor
   const horizontalRuleNode = state.schema.nodes.horizontalRule
@@ -311,6 +390,7 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [editorMenu, setEditorMenu] = useState<{ x: number; y: number } | null>(null)
+  const [imageMenu, setImageMenu] = useState<ImageMenuState | null>(null)
   const [slashSuggestion, setSlashSuggestion] = useState<SlashSuggestion | null>(null)
   const [activeFormats, setActiveFormats] = useState<ActiveFormatState>(plainFormatState)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(plainUpdateStatus)
@@ -333,6 +413,7 @@ export function App() {
       CollapsibleSection,
       CollapsibleSectionTitle,
       CollapsibleSectionContent,
+      NoteImage,
       TextColor,
       SlashFormatting,
       Placeholder.configure({
@@ -343,6 +424,47 @@ export function App() {
     editorProps: {
       attributes: {
         class: 'editor-surface'
+      },
+      handlePaste(_view, event) {
+        const items = Array.from(event.clipboardData?.items ?? [])
+        const imageItem = items.find((item) => item.type.startsWith('image/'))
+        const file = imageItem?.getAsFile()
+
+        if (!file) {
+          return false
+        }
+
+        event.preventDefault()
+        readFileAsDataUrl(file)
+          .then((dataUrl) => window.coreNote.saveImage({ dataUrl, fileName: file.name }))
+          .then((image) => {
+            if (editorRef.current) {
+              insertEditorImage(editorRef.current, image)
+            }
+          })
+          .catch((error: unknown) => {
+            showToast(error instanceof Error ? error.message : 'Could not paste image')
+          })
+
+        return true
+      },
+      handleClickOn(_view, _position, node, nodePosition, event) {
+        if (node.type.name !== 'noteImage') {
+          setImageMenu(null)
+          return false
+        }
+
+        const pointerEvent = event as globalThis.MouseEvent
+        setEditorMenu(null)
+        setImageMenu({
+          x: Math.min(pointerEvent.clientX, window.innerWidth - 286),
+          y: Math.min(pointerEvent.clientY + 10, window.innerHeight - 112),
+          position: nodePosition,
+          align: readNoteImageAlign(node.attrs.align),
+          size: readNoteImageSize(node.attrs.size)
+        })
+
+        return false
       }
     },
     onUpdate: ({ editor }) => {
@@ -358,6 +480,10 @@ export function App() {
 
   const closeEditorMenu = useCallback(() => {
     setEditorMenu(null)
+  }, [])
+
+  const closeImageMenu = useCallback(() => {
+    setImageMenu(null)
   }, [])
 
   const showToast = useCallback((message: string) => {
@@ -411,12 +537,80 @@ export function App() {
       }
 
       event.preventDefault()
+
+      if (isNoteImageTarget(event.target)) {
+        const targetPosition = editor.view.posAtCoords({ left: event.clientX, top: event.clientY })
+        const imageMatch = targetPosition ? findNoteImageAtPosition(editor, targetPosition.pos) : null
+
+        closeEditorMenu()
+
+        if (imageMatch) {
+          setImageMenu({
+            x: Math.min(event.clientX, window.innerWidth - 286),
+            y: Math.min(event.clientY + 10, window.innerHeight - 112),
+            position: imageMatch.position,
+            align: readNoteImageAlign(imageMatch.node.attrs.align),
+            size: readNoteImageSize(imageMatch.node.attrs.size)
+          })
+        } else {
+          closeImageMenu()
+        }
+
+        return
+      }
+
+      closeImageMenu()
       setEditorMenu({
         x: Math.min(event.clientX, window.innerWidth - 420),
         y: Math.min(event.clientY, window.innerHeight - 432)
       })
     },
-    [activeNote, editor]
+    [activeNote, closeEditorMenu, closeImageMenu, editor]
+  )
+
+  const insertImageFromFile = useCallback(async () => {
+    const currentEditor = editorRef.current
+
+    if (!currentEditor) {
+      return
+    }
+
+    const image = await window.coreNote.chooseImage()
+
+    if (!image) {
+      return
+    }
+
+    insertEditorImage(currentEditor, image)
+  }, [])
+
+  const updateSelectedImage = useCallback(
+    (attrs: Partial<{ align: NoteImageAlign; size: NoteImageSize }>) => {
+      if (!editor || !imageMenu) {
+        return
+      }
+
+      const node = editor.state.doc.nodeAt(imageMenu.position)
+
+      if (!node || node.type.name !== 'noteImage') {
+        closeImageMenu()
+        return
+      }
+
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(imageMenu.position, undefined, {
+          ...node.attrs,
+          ...attrs
+        })
+      )
+      setImageMenu({
+        ...imageMenu,
+        align: attrs.align ?? imageMenu.align,
+        size: attrs.size ?? imageMenu.size
+      })
+      editor.commands.focus()
+    },
+    [closeImageMenu, editor, imageMenu]
   )
 
   const runEditorAction = useCallback(
@@ -733,6 +927,42 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    const handleInsertImage = (): void => {
+      insertImageFromFile().catch((error: unknown) => {
+        showToast(error instanceof Error ? error.message : 'Could not insert image')
+      })
+    }
+
+    window.addEventListener('corenote:insert-image', handleInsertImage)
+
+    return () => {
+      window.removeEventListener('corenote:insert-image', handleInsertImage)
+    }
+  }, [insertImageFromFile, showToast])
+
+  useEffect(() => {
+    if (!imageMenu) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        closeImageMenu()
+      }
+    }
+
+    window.addEventListener('click', closeImageMenu)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('resize', closeImageMenu)
+
+    return () => {
+      window.removeEventListener('click', closeImageMenu)
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('resize', closeImageMenu)
+    }
+  }, [closeImageMenu, imageMenu])
+
+  useEffect(() => {
     editorRef.current = editor
   }, [editor])
 
@@ -1039,6 +1269,57 @@ export function App() {
               </button>
             )
           })}
+        </div>
+      ) : null}
+
+      {imageMenu ? (
+        <div
+          className="image-menu"
+          style={{ left: imageMenu.x, top: imageMenu.y }}
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <div className="image-menu-group" aria-label="Image alignment">
+            <button
+              className={imageMenu.align === 'left' ? 'active' : undefined}
+              type="button"
+              title="Align left"
+              onClick={() => updateSelectedImage({ align: 'left' })}
+            >
+              <AlignLeft size={15} />
+            </button>
+            <button
+              className={imageMenu.align === 'center' ? 'active' : undefined}
+              type="button"
+              title="Align center"
+              onClick={() => updateSelectedImage({ align: 'center' })}
+            >
+              <AlignCenter size={15} />
+            </button>
+            <button
+              className={imageMenu.align === 'right' ? 'active' : undefined}
+              type="button"
+              title="Align right"
+              onClick={() => updateSelectedImage({ align: 'right' })}
+            >
+              <AlignRight size={15} />
+            </button>
+          </div>
+          <div className="image-menu-separator" />
+          <div className="image-menu-group" aria-label="Image size">
+            {(['small', 'medium', 'large'] satisfies NoteImageSize[]).map((size) => (
+              <button
+                className={imageMenu.size === size ? 'active' : undefined}
+                key={size}
+                type="button"
+                title={`${size[0].toUpperCase()}${size.slice(1)} image`}
+                onClick={() => updateSelectedImage({ size })}
+              >
+                {size === 'small' ? 'S' : size === 'medium' ? 'M' : 'L'}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 

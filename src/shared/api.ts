@@ -1,5 +1,6 @@
 import type { CreateNoteInput, Note, NoteSummary, NoteUpdate, SearchNotesInput } from './notes'
 import type { UpdateStatus } from './updates'
+import type { NoteImage, SaveImageInput } from './images'
 
 export type CoreNoteApi = {
   listNotes: () => Promise<NoteSummary[]>
@@ -16,6 +17,8 @@ export type CoreNoteApi = {
   downloadUpdate: () => Promise<UpdateStatus>
   installUpdate: () => Promise<void>
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
+  chooseImage: () => Promise<NoteImage | null>
+  saveImage: (input: SaveImageInput) => Promise<NoteImage>
 }
 
 declare global {

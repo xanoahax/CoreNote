@@ -446,12 +446,92 @@ button:disabled {
   background: #4a4a4a;
 }
 
+.editor-surface .ProseMirror-selectednode {
+  outline: 1px solid rgb(183 116 29 / 0.54);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 4px rgb(183 116 29 / 0.08);
+}
+
+.editor-surface hr.ProseMirror-selectednode {
+  height: 2px;
+  border-radius: 999px;
+  background: #b7741d;
+}
+
+.editor-surface figure[data-type="note-image"] {
+  display: flex;
+  width: 100%;
+  margin: 18px 0;
+  border-radius: 10px;
+  user-select: none;
+}
+
+.editor-surface figure[data-type="note-image"][data-align="left"] {
+  justify-content: flex-start;
+}
+
+.editor-surface figure[data-type="note-image"][data-align="center"] {
+  justify-content: center;
+}
+
+.editor-surface figure[data-type="note-image"][data-align="right"] {
+  justify-content: flex-end;
+}
+
+.editor-surface figure[data-type="note-image"] img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid #343434;
+  border-radius: 8px;
+  background: #181818;
+  object-fit: contain;
+}
+
+.editor-surface figure[data-type="note-image"][data-size="small"] img {
+  width: min(42%, 280px);
+}
+
+.editor-surface figure[data-type="note-image"][data-size="medium"] img {
+  width: min(68%, 520px);
+}
+
+.editor-surface figure[data-type="note-image"][data-size="large"] img {
+  width: 100%;
+}
+
+.editor-surface figure[data-type="note-image"].ProseMirror-selectednode img {
+  border-color: #b7741d;
+  box-shadow: 0 0 0 2px rgb(183 116 29 / 0.14);
+}
+
 .editor-surface details[data-type="collapsible-section"] {
+  position: relative;
   overflow: hidden;
   margin: 8px 0 18px;
   border: 1px solid #343434;
   border-radius: 8px;
   background: #181818;
+}
+
+.editor-surface details[data-type="collapsible-section"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.editor-surface details[data-type="collapsible-section"]:hover::after,
+.editor-surface details[data-type="collapsible-section"].ProseMirror-selectednode::after {
+  background: rgb(183 116 29 / 0.16);
+}
+
+.editor-surface details[data-type="collapsible-section"].ProseMirror-selectednode {
+  border-color: #b7741d;
+  background: #1d1a15;
 }
 
 .editor-surface details[data-type="collapsible-section"]:focus-within {
@@ -526,6 +606,12 @@ button:disabled {
   margin: 0 0 var(--editor-line-gap);
   padding: 0;
   list-style: none;
+}
+
+.editor-surface ul[data-type="taskList"].ProseMirror-selectednode,
+.editor-surface ul[data-type="taskList"] li.ProseMirror-selectednode {
+  border-radius: 8px;
+  background: rgb(183 116 29 / 0.08);
 }
 
 .editor-surface ul[data-type="taskList"] li {
@@ -770,6 +856,52 @@ button:disabled {
 .context-menu-folder:hover .context-submenu,
 .context-menu-folder:focus-within .context-submenu {
   display: block;
+}
+
+.image-menu {
+  position: fixed;
+  z-index: 82;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  background: #181818;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 0.38);
+  padding: 6px;
+}
+
+.image-menu-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.image-menu button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #d4d4d4;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.image-menu button:hover,
+.image-menu button.active {
+  background: #2a2a2a;
+  color: #ffffff;
+}
+
+.image-menu-separator {
+  width: 1px;
+  height: 22px;
+  background: #303030;
 }
 
 .slash-menu {

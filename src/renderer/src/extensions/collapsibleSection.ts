@@ -1,5 +1,5 @@
 import { Node, mergeAttributes } from '@tiptap/core'
-import { Plugin } from '@tiptap/pm/state'
+import { NodeSelection, Plugin } from '@tiptap/pm/state'
 
 export const CollapsibleSection = Node.create({
   name: 'collapsibleSection',
@@ -8,6 +8,7 @@ export const CollapsibleSection = Node.create({
   content: 'collapsibleSectionTitle collapsibleSectionContent',
   defining: true,
   isolating: true,
+  selectable: true,
 
   addAttributes() {
     return {
@@ -71,10 +72,33 @@ export const CollapsibleSection = Node.create({
             return true
           }
 
+          const selectSection = (details: HTMLDetailsElement): boolean => {
+            const position = findSectionPosition(details)
+
+            if (position === null) {
+              return false
+            }
+
+            view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, position)))
+            view.focus()
+            return true
+          }
+
           const handlePointerDown = (event: PointerEvent): void => {
+            if (event.button !== 0) {
+              return
+            }
+
             const target = event.target
 
             if (!(target instanceof Element)) {
+              return
+            }
+
+            if (target instanceof HTMLDetailsElement && target.dataset.type === 'collapsible-section') {
+              event.preventDefault()
+              event.stopPropagation()
+              selectSection(target)
               return
             }
 
