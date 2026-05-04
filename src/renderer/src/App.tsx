@@ -7,12 +7,21 @@ import Placeholder from '@tiptap/extension-placeholder'
 import Underline from '@tiptap/extension-underline'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import { LinkChip, createFaviconUrl, createShortLinkLabel, normalizeLinkUrl } from './extensions/linkChip'
 import { NoteImage } from './extensions/noteImage'
 import {
   CollapsibleSection,
   CollapsibleSectionContent,
   CollapsibleSectionTitle
 } from './extensions/collapsibleSection'
+import {
+  dateFormats,
+  formatCurrentDate,
+  formatCurrentTime,
+  timeFormats,
+  type DateFormatId,
+  type TimeFormatId
+} from './dateTimeFormats'
 import { SlashFormatting } from './extensions/slashFormatting'
 import { TextColor } from './extensions/textColor'
 import {
@@ -20,8 +29,10 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  Calendar,
   Clipboard,
   ChevronRight,
+  Clock,
   Copy,
   Download,
   Scissors,
@@ -30,6 +41,7 @@ import {
   Heading,
   Heading1,
   Heading2,
+  Image as ImageIcon,
   Italic,
   Minus,
   Plus,
@@ -47,6 +59,7 @@ import type { UpdateStatus } from '../../shared/updates'
 import type { NoteImageAlign, NoteImageSize } from '../../shared/images'
 
 const coreNoteLogoUrl = new URL('../../../assets/corenote_logo_new.png', import.meta.url).href
+const timerFinishSoundUrl = new URL('../../../assets/timer_finish.wav', import.meta.url).href
 
 const emptyDoc = {
   type: 'doc',
@@ -124,11 +137,13 @@ type EditorAction =
   | 'bold'
   | 'checkbox'
   | 'clear'
+  | 'collapsible-section'
   | 'cut'
   | 'copy'
   | 'divider'
   | 'heading-1'
   | 'heading-2'
+  | 'image'
   | 'italic'
   | 'paste'
   | 'text-color-accent'
@@ -136,6 +151,8 @@ type EditorAction =
   | 'text-color-green'
   | 'text-color-red'
   | 'text-color-white'
+  | `date-${DateFormatId}`
+  | `time-${TimeFormatId}`
   | 'underline'
 
 type EditorMenuItem =
@@ -159,9 +176,19 @@ const contextTextColors = [
   { action: 'text-color-green', label: 'Green', color: '#7bd88f' }
 ] satisfies { action: EditorAction; label: string; color: string }[]
 
+const contextDateFormats = dateFormats.map((dateFormat) => ({
+  action: dateFormat.commandName.slice(1) as EditorAction,
+  label: dateFormat.label.replace(' Date', '')
+}))
+
+const contextTimeFormats = timeFormats.map((timeFormat) => ({
+  action: timeFormat.commandName.slice(1) as EditorAction,
+  label: timeFormat.label.replace(' Time', '')
+}))
+
 type SlashSuggestion = {
   query: string
-  mode: 'root' | 'textStyle' | 'heading' | 'insert' | 'textColor'
+  mode: 'root' | 'textStyle' | 'heading' | 'insert' | 'date' | 'time' | 'timer' | 'textColor'
   items: {
     id: string
     label: string
@@ -199,6 +226,21 @@ type NoteImageMatch = {
   node: ProseMirrorNode
   position: number
 }
+type NoteTimerStatus = 'idle' | 'running' | 'paused' | 'done'
+type NoteTimerState = {
+  durationSeconds: number
+  remainingSeconds: number
+  status: NoteTimerStatus
+  endsAt?: number
+}
+type TimerCommandDetail = {
+  commandName: '/timer-duration' | '/timer-start' | '/timer-pause' | '/timer-stop'
+  minutes?: number
+}
+type TimerMinuteSegment = {
+  id: string
+  fill: number
+}
 
 const defaultNoteTitle = 'New Note'
 const defaultNoteTitles = new Set([defaultNoteTitle, 'Neue Notiz'])
@@ -214,6 +256,7 @@ const plainUpdateStatus: UpdateStatus = {
   currentVersion: '',
   isPackaged: false
 }
+const defaultTimerDurationSeconds = 25 * 60
 
 const formatNoteDate = (value: string): string => {
   const date = new Date(value)
@@ -301,6 +344,37 @@ const readNoteImageAlign = (value: unknown): NoteImageAlign => (value === 'left'
 
 const readNoteImageSize = (value: unknown): NoteImageSize => (value === 'small' || value === 'large' ? value : 'medium')
 
+const createDefaultTimer = (): NoteTimerState => ({
+  durationSeconds: defaultTimerDurationSeconds,
+  remainingSeconds: defaultTimerDurationSeconds,
+  status: 'idle'
+})
+
+const getTimerRemainingSeconds = (timer: NoteTimerState, now = Date.now()): number => {
+  if (timer.status !== 'running' || !timer.endsAt) {
+    return timer.remainingSeconds
+  }
+
+  return Math.max(0, Math.ceil((timer.endsAt - now) / 1000))
+}
+
+const getTimerMinuteSegments = (timer: NoteTimerState): TimerMinuteSegment[] => {
+  const segmentCount = Math.max(1, Math.ceil(timer.durationSeconds / 60))
+  const elapsedSeconds = Math.max(0, timer.durationSeconds - timer.remainingSeconds)
+
+  return Array.from({ length: segmentCount }, (_, index) => {
+    const segmentStart = index * 60
+    const segmentEnd = Math.min((index + 1) * 60, timer.durationSeconds)
+    const segmentDuration = Math.max(1, segmentEnd - segmentStart)
+    const fill = Math.max(0, Math.min(1, (elapsedSeconds - segmentStart) / segmentDuration))
+
+    return {
+      id: `${index}-${segmentStart}`,
+      fill
+    }
+  })
+}
+
 const findNoteImageAtPosition = (editor: Editor, documentPosition: number): NoteImageMatch | null => {
   let match: NoteImageMatch | null = null
 
@@ -357,6 +431,31 @@ const insertEditorImage = (editor: Editor, image: { src: string; alt: string }):
     .run()
 }
 
+const insertEditorLinkChip = (editor: Editor, href: string): void => {
+  editor
+    .chain()
+    .focus()
+    .insertContent({
+      type: 'linkChip',
+      attrs: {
+        href,
+        label: createShortLinkLabel(href),
+        faviconUrl: createFaviconUrl(href)
+      }
+    })
+    .run()
+}
+
+const insertEditorText = (editor: Editor, text: string): void => {
+  const { state } = editor
+  const activeMarks = state.storedMarks ?? state.selection.$from.marks()
+  const textNode = state.schema.text(text, activeMarks)
+  const tr = state.tr.replaceSelectionWith(textNode, false)
+
+  tr.setStoredMarks(activeMarks)
+  editor.view.dispatch(tr.scrollIntoView())
+}
+
 const insertEditorDivider = (editor: Editor): void => {
   const { state } = editor
   const horizontalRuleNode = state.schema.nodes.horizontalRule
@@ -380,6 +479,56 @@ const insertEditorDivider = (editor: Editor): void => {
   editor.view.dispatch(tr.scrollIntoView())
 }
 
+const insertEditorCollapsibleSection = (editor: Editor): void => {
+  const { state } = editor
+  const collapsibleSectionNode = state.schema.nodes.collapsibleSection
+  const collapsibleSectionTitleNode = state.schema.nodes.collapsibleSectionTitle
+  const collapsibleSectionContentNode = state.schema.nodes.collapsibleSectionContent
+  const paragraphNode = state.schema.nodes.paragraph
+
+  if (
+    !collapsibleSectionNode ||
+    !collapsibleSectionTitleNode ||
+    !collapsibleSectionContentNode ||
+    !paragraphNode ||
+    !state.selection.empty
+  ) {
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: 'collapsibleSection',
+        attrs: { open: true },
+        content: [
+          {
+            type: 'collapsibleSectionTitle',
+            content: [{ type: 'text', text: 'Section title' }]
+          },
+          {
+            type: 'collapsibleSectionContent',
+            content: [{ type: 'paragraph' }]
+          }
+        ]
+      })
+      .run()
+    return
+  }
+
+  const { $from } = state.selection
+  const blockFrom = $from.before($from.depth)
+  const blockTo = $from.after($from.depth)
+  const title = collapsibleSectionTitleNode.create(null, state.schema.text('Section title'))
+  const bodyParagraph = paragraphNode.create()
+  const sectionContent = collapsibleSectionContentNode.create(null, bodyParagraph)
+  const section = collapsibleSectionNode.create({ open: true }, [title, sectionContent])
+  const trailingParagraph = paragraphNode.create()
+  const bodyCursorPosition = blockFrom + 1 + title.nodeSize + 2
+  const tr = state.tr.replaceWith(blockFrom, blockTo, Fragment.fromArray([section, trailingParagraph]))
+
+  tr.setSelection(TextSelection.near(tr.doc.resolve(bodyCursorPosition)))
+  editor.view.dispatch(tr.scrollIntoView())
+}
+
 export function App() {
   const [notes, setNotes] = useState<NoteSummary[]>([])
   const [activeNote, setActiveNote] = useState<Note | null>(null)
@@ -394,13 +543,18 @@ export function App() {
   const [slashSuggestion, setSlashSuggestion] = useState<SlashSuggestion | null>(null)
   const [activeFormats, setActiveFormats] = useState<ActiveFormatState>(plainFormatState)
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>(plainUpdateStatus)
+  const [noteTimers, setNoteTimers] = useState<Record<string, NoteTimerState>>({})
   const saveTimerRef = useRef<number | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const activeNoteRef = useRef<Note | null>(null)
   const activeNoteIdRef = useRef<string | null>(null)
   const titleRef = useRef('')
   const toastTimerRef = useRef<number | null>(null)
+  const timerSoundTimeoutsRef = useRef<number[]>([])
+  const previousTimerStatusesRef = useRef<Record<string, NoteTimerStatus>>({})
   const activeNoteId = activeNote?.id ?? null
+  const activeTimer = activeNoteId ? noteTimers[activeNoteId] : null
+  const timerMinuteSegments = activeTimer ? getTimerMinuteSegments(activeTimer) : []
 
   const editor = useEditor({
     extensions: [
@@ -413,6 +567,7 @@ export function App() {
       CollapsibleSection,
       CollapsibleSectionTitle,
       CollapsibleSectionContent,
+      LinkChip,
       NoteImage,
       TextColor,
       SlashFormatting,
@@ -430,25 +585,48 @@ export function App() {
         const imageItem = items.find((item) => item.type.startsWith('image/'))
         const file = imageItem?.getAsFile()
 
-        if (!file) {
-          return false
+        if (file) {
+          event.preventDefault()
+          readFileAsDataUrl(file)
+            .then((dataUrl) => window.coreNote.saveImage({ dataUrl, fileName: file.name }))
+            .then((image) => {
+              if (editorRef.current) {
+                insertEditorImage(editorRef.current, image)
+              }
+            })
+            .catch((error: unknown) => {
+              showToast(error instanceof Error ? error.message : 'Could not paste image')
+            })
+
+          return true
         }
 
-        event.preventDefault()
-        readFileAsDataUrl(file)
-          .then((dataUrl) => window.coreNote.saveImage({ dataUrl, fileName: file.name }))
-          .then((image) => {
-            if (editorRef.current) {
-              insertEditorImage(editorRef.current, image)
-            }
-          })
-          .catch((error: unknown) => {
-            showToast(error instanceof Error ? error.message : 'Could not paste image')
-          })
+        const pastedText = event.clipboardData?.getData('text/plain') ?? ''
+        const linkUrl = normalizeLinkUrl(pastedText)
 
-        return true
+        if (linkUrl) {
+          event.preventDefault()
+
+          if (editorRef.current) {
+            insertEditorLinkChip(editorRef.current, linkUrl)
+          }
+
+          return true
+        }
+
+        return false
       },
       handleClickOn(_view, _position, node, nodePosition, event) {
+        if (node.type.name === 'linkChip') {
+          const href = typeof node.attrs.href === 'string' ? node.attrs.href : ''
+
+          if (href) {
+            event.preventDefault()
+            window.open(href, '_blank', 'noopener,noreferrer')
+            return true
+          }
+        }
+
         if (node.type.name !== 'noteImage') {
           setImageMenu(null)
           return false
@@ -496,6 +674,101 @@ export function App() {
       setToast(null)
     }, 2800)
   }, [])
+
+  const playTimerFinishSound = useCallback(() => {
+    for (let index = 0; index < 3; index += 1) {
+      const timeoutId = window.setTimeout(() => {
+        timerSoundTimeoutsRef.current = timerSoundTimeoutsRef.current.filter((id) => id !== timeoutId)
+        const audio = new Audio(timerFinishSoundUrl)
+        audio.volume = 0.85
+        audio.play().catch(() => {
+          // Browsers may block audio if the app has not received user interaction yet.
+        })
+      }, index * 3000)
+
+      timerSoundTimeoutsRef.current.push(timeoutId)
+    }
+  }, [])
+
+  const applyTimerCommand = useCallback(
+    (detail: TimerCommandDetail) => {
+      const noteId = activeNoteIdRef.current
+
+      if (!noteId) {
+        showToast('Open a note before using timer commands')
+        return
+      }
+
+      setNoteTimers((currentTimers) => {
+        const currentTimer = currentTimers[noteId] ?? createDefaultTimer()
+
+        if (detail.commandName === '/timer-duration') {
+          if (!detail.minutes || detail.minutes < 1 || detail.minutes > 1440) {
+            showToast('Use /timer-duration 25')
+            return currentTimers
+          }
+
+          const durationSeconds = detail.minutes * 60
+
+          showToast(`Timer set to ${detail.minutes} min`)
+
+          return {
+            ...currentTimers,
+            [noteId]: {
+              durationSeconds,
+              remainingSeconds: durationSeconds,
+              status: 'idle'
+            }
+          }
+        }
+
+        if (detail.commandName === '/timer-start') {
+          const remainingSeconds =
+            currentTimer.status === 'done' || currentTimer.remainingSeconds <= 0
+              ? currentTimer.durationSeconds
+              : getTimerRemainingSeconds(currentTimer)
+
+          showToast('Timer started')
+
+          return {
+            ...currentTimers,
+            [noteId]: {
+              ...currentTimer,
+              remainingSeconds,
+              status: 'running',
+              endsAt: Date.now() + remainingSeconds * 1000
+            }
+          }
+        }
+
+        if (detail.commandName === '/timer-pause') {
+          if (currentTimer.status !== 'running') {
+            showToast('Timer is not running')
+            return currentTimers
+          }
+
+          showToast('Timer paused')
+
+          return {
+            ...currentTimers,
+            [noteId]: {
+              ...currentTimer,
+              remainingSeconds: getTimerRemainingSeconds(currentTimer),
+              status: 'paused',
+              endsAt: undefined
+            }
+          }
+        }
+
+        const { [noteId]: _removedTimer, ...remainingTimers } = currentTimers
+
+        showToast('Timer stopped')
+
+        return remainingTimers
+      })
+    },
+    [showToast]
+  )
 
   const isEmptyNote = useCallback((note: Note | null): boolean => {
     if (!note) {
@@ -621,6 +894,27 @@ export function App() {
 
       editor.commands.focus()
 
+      const dateFormat = dateFormats.find((format) => action === `date-${format.id}`)
+      const timeFormat = timeFormats.find((format) => action === `time-${format.id}`)
+
+      if (dateFormat) {
+        insertEditorText(editor, formatCurrentDate(dateFormat.id))
+        closeEditorMenu()
+        window.setTimeout(() => {
+          editor.commands.focus()
+        }, 0)
+        return
+      }
+
+      if (timeFormat) {
+        insertEditorText(editor, formatCurrentTime(timeFormat.id))
+        closeEditorMenu()
+        window.setTimeout(() => {
+          editor.commands.focus()
+        }, 0)
+        return
+      }
+
       switch (action) {
         case 'bold':
           editor.chain().focus().toggleBold().run()
@@ -630,6 +924,9 @@ export function App() {
           break
         case 'clear':
           clearEditorFormatting(editor)
+          break
+        case 'collapsible-section':
+          insertEditorCollapsibleSection(editor)
           break
         case 'cut':
           document.execCommand('cut')
@@ -654,6 +951,10 @@ export function App() {
           break
         case 'heading-2':
           editor.chain().focus().toggleHeading({ level: 2 }).run()
+          break
+        case 'image':
+          closeEditorMenu()
+          await insertImageFromFile()
           break
         case 'italic':
           editor.chain().focus().toggleItalic().run()
@@ -683,7 +984,7 @@ export function App() {
         editor.commands.focus()
       }, 0)
     },
-    [closeEditorMenu, editor]
+    [closeEditorMenu, editor, insertImageFromFile]
   )
 
   const updateIsBusy = updateStatus.state === 'checking' || updateStatus.state === 'downloading'
@@ -941,6 +1242,80 @@ export function App() {
   }, [insertImageFromFile, showToast])
 
   useEffect(() => {
+    const handleTimerCommand = (event: Event): void => {
+      applyTimerCommand((event as CustomEvent<TimerCommandDetail>).detail)
+    }
+
+    window.addEventListener('corenote:timer-command', handleTimerCommand)
+
+    return () => {
+      window.removeEventListener('corenote:timer-command', handleTimerCommand)
+    }
+  }, [applyTimerCommand])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNoteTimers((currentTimers) => {
+        let changed = false
+        const nextTimers: Record<string, NoteTimerState> = {}
+        const now = Date.now()
+
+        Object.entries(currentTimers).forEach(([noteId, timer]) => {
+          if (timer.status !== 'running') {
+            nextTimers[noteId] = timer
+            return
+          }
+
+          const remainingSeconds = getTimerRemainingSeconds(timer, now)
+
+          if (remainingSeconds <= 0) {
+            changed = true
+            nextTimers[noteId] = {
+              ...timer,
+              remainingSeconds: 0,
+              status: 'done',
+              endsAt: undefined
+            }
+            return
+          }
+
+          if (remainingSeconds !== timer.remainingSeconds) {
+            changed = true
+            nextTimers[noteId] = {
+              ...timer,
+              remainingSeconds
+            }
+            return
+          }
+
+          nextTimers[noteId] = timer
+        })
+
+        return changed ? nextTimers : currentTimers
+      })
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
+
+  useEffect(() => {
+    const previousStatuses = previousTimerStatusesRef.current
+    const nextStatuses: Record<string, NoteTimerStatus> = {}
+
+    Object.entries(noteTimers).forEach(([noteId, timer]) => {
+      if (previousStatuses[noteId] === 'running' && timer.status === 'done') {
+        playTimerFinishSound()
+      }
+
+      nextStatuses[noteId] = timer.status
+    })
+
+    previousTimerStatusesRef.current = nextStatuses
+  }, [noteTimers, playTimerFinishSound])
+
+  useEffect(() => {
     if (!imageMenu) {
       return
     }
@@ -993,6 +1368,10 @@ export function App() {
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current)
       }
+      timerSoundTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      timerSoundTimeoutsRef.current = []
     }
   }, [])
 
@@ -1153,6 +1532,17 @@ export function App() {
                 </span>
               </div>
             </header>
+            {activeTimer ? (
+              <div className={`note-timer-rail ${activeTimer.status}`} aria-label="Note timer">
+                <div className="note-timer-track">
+                  {timerMinuteSegments.map((segment) => (
+                    <span className="note-timer-segment" key={segment.id}>
+                      <span className="note-timer-fill" style={{ height: `${segment.fill * 100}%` }} />
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <EditorContent editor={editor} className="editor-frame" onContextMenu={openEditorMenu} />
           </>
         ) : (
@@ -1221,6 +1611,19 @@ export function App() {
             </span>
             <ChevronRight size={15} />
             <div className="context-submenu" role="menu">
+              <button
+                className="context-menu-item"
+                type="button"
+                role="menuitem"
+                onClick={() => runEditorAction('collapsible-section')}
+              >
+                <FileText size={16} />
+                <span>Collapsible Section</span>
+              </button>
+              <button className="context-menu-item" type="button" role="menuitem" onClick={() => runEditorAction('image')}>
+                <ImageIcon size={16} />
+                <span>Image</span>
+              </button>
               <button className="context-menu-item" type="button" role="menuitem" onClick={() => runEditorAction('checkbox')}>
                 <Square size={16} />
                 <span>Checkbox</span>
@@ -1229,6 +1632,48 @@ export function App() {
                 <Minus size={16} />
                 <span>Divider</span>
               </button>
+            </div>
+          </div>
+          <div className="context-menu-folder" role="menuitem" tabIndex={0}>
+            <span className="context-menu-folder-label">
+              <Calendar size={16} />
+              <span>Date</span>
+            </span>
+            <ChevronRight size={15} />
+            <div className="context-submenu" role="menu">
+              {contextDateFormats.map((dateFormat) => (
+                <button
+                  className="context-menu-item"
+                  key={dateFormat.action}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => runEditorAction(dateFormat.action)}
+                >
+                  <Calendar size={16} />
+                  <span>{dateFormat.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="context-menu-folder" role="menuitem" tabIndex={0}>
+            <span className="context-menu-folder-label">
+              <Clock size={16} />
+              <span>Time</span>
+            </span>
+            <ChevronRight size={15} />
+            <div className="context-submenu" role="menu">
+              {contextTimeFormats.map((timeFormat) => (
+                <button
+                  className="context-menu-item"
+                  key={timeFormat.action}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => runEditorAction(timeFormat.action)}
+                >
+                  <Clock size={16} />
+                  <span>{timeFormat.label}</span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="context-menu-folder" role="menuitem" tabIndex={0}>

@@ -2,9 +2,17 @@ import { Extension } from '@tiptap/core'
 import { Fragment } from '@tiptap/pm/model'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
+import {
+  dateFormats,
+  formatCurrentDate,
+  formatCurrentTime,
+  timeFormats,
+  type DateFormatId,
+  type TimeFormatId
+} from '../dateTimeFormats'
 
 type SlashCommand = (view: EditorView) => boolean
-type SlashMenuMode = 'root' | 'textStyle' | 'heading' | 'insert' | 'textColor'
+type SlashMenuMode = 'root' | 'textStyle' | 'heading' | 'insert' | 'date' | 'time' | 'timer' | 'textColor'
 type SlashMenuItem = {
   id: string
   label: string
@@ -37,11 +45,22 @@ type FormatState = {
     value: string
   } | null
 }
+type SmartCommandMatch = {
+  commandName: '/timer-duration' | '/timer-start' | '/timer-pause' | '/timer-stop'
+  argument?: string
+  from: number
+  to: number
+}
+type SmartCommandDraftMatch = {
+  from: number
+  to: number
+}
 
 const slashCommands = new Map<string, SlashCommand>()
 const checkboxCommandAliases = ['/check', '/checklist', '/todo', '/task']
 const collapsibleSectionCommandAliases = ['/collapsible-section', '/collapsible', '/section', '/toggle-section']
 const imageCommandAliases = ['/img', '/picture', '/photo']
+const timerCommandAliases = ['/timer-duration', '/timer-start', '/timer-pause', '/timer-stop']
 const textColors = [
   { id: 'white', label: 'White', color: '#ffffff' },
   { id: 'accent', label: 'Accent', color: '#b7741d' },
@@ -53,6 +72,9 @@ const rootItems: SlashMenuItem[] = [
   { id: 'text-style', label: 'Text Style', kind: 'folder', folder: 'textStyle', aliases: ['/text', '/style', '/format'] },
   { id: 'heading', label: 'Heading', kind: 'folder', folder: 'heading', aliases: ['/heading', '/h'] },
   { id: 'insert', label: 'Insert', kind: 'folder', folder: 'insert', aliases: ['/insert', '/add'] },
+  { id: 'date', label: 'Date', kind: 'folder', folder: 'date', aliases: ['/date', '/today'] },
+  { id: 'time', label: 'Time', kind: 'folder', folder: 'time', aliases: ['/time', '/now'] },
+  { id: 'timer', label: 'Timer', kind: 'folder', folder: 'timer', aliases: ['/timer', ...timerCommandAliases] },
   { id: 'text-color', label: 'Text Color', kind: 'folder', folder: 'textColor', aliases: ['/color', '/textcolor', '/text-color'] }
 ]
 const folderItems: Record<Exclude<SlashMenuMode, 'root'>, SlashMenuItem[]> = {
@@ -77,6 +99,30 @@ const folderItems: Record<Exclude<SlashMenuMode, 'root'>, SlashMenuItem[]> = {
     },
     { id: 'image', label: 'Image', kind: 'command', commandName: '/image', aliases: imageCommandAliases },
     { id: 'divider', label: 'Divider', kind: 'command', commandName: '/divider', aliases: ['/hr', '/line'] }
+  ],
+  date: dateFormats.map((dateFormat) => ({
+    id: `date-${dateFormat.id}`,
+    label: dateFormat.label,
+    kind: 'command',
+    commandName: dateFormat.commandName
+  })),
+  time: timeFormats.map((timeFormat) => ({
+    id: `time-${timeFormat.id}`,
+    label: timeFormat.label,
+    kind: 'command',
+    commandName: timeFormat.commandName
+  })),
+  timer: [
+    {
+      id: 'timer-duration',
+      label: 'Timer Duration',
+      kind: 'command',
+      commandName: '/timer-duration',
+      aliases: ['/timer-duration 25']
+    },
+    { id: 'timer-start', label: 'Timer Start', kind: 'command', commandName: '/timer-start' },
+    { id: 'timer-pause', label: 'Timer Pause', kind: 'command', commandName: '/timer-pause' },
+    { id: 'timer-stop', label: 'Timer Stop', kind: 'command', commandName: '/timer-stop' }
   ],
   textColor: textColors.map((textColor) => ({
     id: `color-${textColor.id}`,
@@ -112,12 +158,7 @@ const slashItemMatches = (item: SlashMenuItem, query: string): boolean => {
 const getVisibleItems = (query: string): SlashMenuItem[] => {
   if (activeMode === 'root') {
     const matchingRootItems = rootItems.filter((item) => slashItemMatches(item, query))
-    const directCommandItems = [
-      ...folderItems.textStyle,
-      ...folderItems.heading,
-      ...folderItems.insert,
-      ...folderItems.textColor
-    ]
+    const directCommandItems = Object.values(folderItems).flat()
     const matchingDirectCommandItems =
       query.length > 1
         ? directCommandItems.filter((item) => slashItemCommandMatches(item, query))
@@ -155,6 +196,51 @@ const getSlashMatch = (
     query,
     items,
     from: $from.pos - query.length,
+    to: $from.pos
+  }
+}
+
+const getSmartCommandMatch = (state: EditorView['state']): SmartCommandMatch | null => {
+  if (!state.selection.empty) {
+    return null
+  }
+
+  const { $from } = state.selection
+  const textBeforeCursor = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+  const match = textBeforeCursor.match(
+    /(?:^|\s)(\/timer-duration\s+([0-9]{1,4})|\/timer-start|\/timer-pause|\/timer-stop)$/i
+  )
+
+  if (!match) {
+    return null
+  }
+
+  const commandText = match[1]
+  const commandName = commandText.toLowerCase().split(/\s+/)[0] as SmartCommandMatch['commandName']
+
+  return {
+    commandName,
+    argument: match[2],
+    from: $from.pos - commandText.length,
+    to: $from.pos
+  }
+}
+
+const getSmartCommandDraftMatch = (state: EditorView['state']): SmartCommandDraftMatch | null => {
+  if (!state.selection.empty) {
+    return null
+  }
+
+  const { $from } = state.selection
+  const textBeforeCursor = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+  const match = textBeforeCursor.match(/(?:^|\s)(\/timer-duration(?:\s+[0-9]{0,4})?)$/i)
+
+  if (!match) {
+    return null
+  }
+
+  return {
+    from: $from.pos - match[1].length,
     to: $from.pos
   }
 }
@@ -264,6 +350,36 @@ const selectSlashItem = (view: EditorView): boolean => {
   const activeMarks = view.state.storedMarks ?? view.state.selection.$from.marks()
   view.dispatch(view.state.tr.delete(slashQuery.from, slashQuery.to).setStoredMarks(activeMarks))
   runCommand(view)
+  emitFormatState(view)
+  hideSlashMenu()
+
+  return true
+}
+
+const runSmartCommand = (view: EditorView): boolean => {
+  const smartCommand = getSmartCommandMatch(view.state)
+
+  if (!smartCommand) {
+    return false
+  }
+
+  const minutes = smartCommand.argument ? Number.parseInt(smartCommand.argument, 10) : undefined
+
+  if (smartCommand.commandName === '/timer-duration' && (!minutes || minutes < 1 || minutes > 1440)) {
+    return false
+  }
+
+  const activeMarks = view.state.storedMarks ?? view.state.selection.$from.marks()
+
+  view.dispatch(view.state.tr.delete(smartCommand.from, smartCommand.to).setStoredMarks(activeMarks))
+  window.dispatchEvent(
+    new CustomEvent('corenote:timer-command', {
+      detail: {
+        commandName: smartCommand.commandName,
+        minutes
+      }
+    })
+  )
   emitFormatState(view)
   hideSlashMenu()
 
@@ -415,6 +531,30 @@ const requestImageInsert = (): boolean => {
   return true
 }
 
+const insertCurrentDate = (view: EditorView, formatId: DateFormatId): boolean => {
+  const { state } = view
+  const activeMarks = state.storedMarks ?? state.selection.$from.marks()
+  const dateText = state.schema.text(formatCurrentDate(formatId), activeMarks)
+  const tr = state.tr.replaceSelectionWith(dateText, false)
+
+  tr.setStoredMarks(activeMarks)
+  view.dispatch(tr.scrollIntoView())
+
+  return true
+}
+
+const insertCurrentTime = (view: EditorView, formatId: TimeFormatId): boolean => {
+  const { state } = view
+  const activeMarks = state.storedMarks ?? state.selection.$from.marks()
+  const timeText = state.schema.text(formatCurrentTime(formatId), activeMarks)
+  const tr = state.tr.replaceSelectionWith(timeText, false)
+
+  tr.setStoredMarks(activeMarks)
+  view.dispatch(tr.scrollIntoView())
+
+  return true
+}
+
 const toggleHeading = (view: EditorView, level: 1 | 2): boolean => {
   const { state } = view
   const headingNode = state.schema.nodes.heading
@@ -453,6 +593,27 @@ export const SlashFormatting = Extension.create({
     slashCommands.set('/h1', (view) => toggleHeading(view, 1))
     slashCommands.set('/h2', (view) => toggleHeading(view, 2))
     slashCommands.set('/checkbox', createCheckbox)
+    slashCommands.set('/timer-duration', (view) => {
+      const { state } = view
+      const activeMarks = state.storedMarks ?? state.selection.$from.marks()
+      const text = state.schema.text('/timer-duration ', activeMarks)
+      const tr = state.tr.replaceSelectionWith(text, false).setStoredMarks(activeMarks)
+
+      view.dispatch(tr.scrollIntoView())
+      return true
+    })
+    slashCommands.set('/timer-start', () => {
+      window.dispatchEvent(new CustomEvent('corenote:timer-command', { detail: { commandName: '/timer-start' } }))
+      return true
+    })
+    slashCommands.set('/timer-pause', () => {
+      window.dispatchEvent(new CustomEvent('corenote:timer-command', { detail: { commandName: '/timer-pause' } }))
+      return true
+    })
+    slashCommands.set('/timer-stop', () => {
+      window.dispatchEvent(new CustomEvent('corenote:timer-command', { detail: { commandName: '/timer-stop' } }))
+      return true
+    })
     checkboxCommandAliases.forEach((alias) => {
       slashCommands.set(alias, createCheckbox)
     })
@@ -461,6 +622,12 @@ export const SlashFormatting = Extension.create({
     })
     imageCommandAliases.forEach((alias) => {
       slashCommands.set(alias, requestImageInsert)
+    })
+    dateFormats.forEach((dateFormat) => {
+      slashCommands.set(dateFormat.commandName, (view) => insertCurrentDate(view, dateFormat.id))
+    })
+    timeFormats.forEach((timeFormat) => {
+      slashCommands.set(timeFormat.commandName, (view) => insertCurrentTime(view, timeFormat.id))
     })
     textColors.forEach((textColor) => {
       slashCommands.set(`/${textColor.id}`, (view) => setStoredTextColor(view, textColor.color))
@@ -480,6 +647,15 @@ export const SlashFormatting = Extension.create({
         props: {
           decorations(state) {
             const slashMatch = getSlashMatch(state)
+            const smartCommandDraftMatch = getSmartCommandDraftMatch(state)
+
+            if (smartCommandDraftMatch) {
+              return DecorationSet.create(state.doc, [
+                Decoration.inline(smartCommandDraftMatch.from, smartCommandDraftMatch.to, {
+                  class: 'slash-command-highlight'
+                })
+              ])
+            }
 
             if (!slashMatch) {
               return DecorationSet.empty
@@ -495,6 +671,16 @@ export const SlashFormatting = Extension.create({
             if (!['ArrowDown', 'ArrowUp', 'Backspace', 'Tab'].includes(event.key)) {
               selectedIndex = 0
               activeMode = 'root'
+            }
+
+            if ((event.key === 'Tab' || event.key === 'Enter') && runSmartCommand(view)) {
+              event.preventDefault()
+              return true
+            }
+
+            if (event.key === 'Tab' && getSmartCommandDraftMatch(view.state)) {
+              event.preventDefault()
+              return true
             }
 
             if (event.key === 'ArrowDown' && moveSlashSelection(view, 1)) {

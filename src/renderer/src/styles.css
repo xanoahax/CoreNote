@@ -338,6 +338,7 @@ button:disabled {
 }
 
 .workspace {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -354,6 +355,53 @@ button:disabled {
   min-height: 112px;
   padding: 44px 44px 18px;
   border-bottom: 1px solid #262626;
+}
+
+.note-timer-rail {
+  position: absolute;
+  top: 132px;
+  bottom: 28px;
+  left: 16px;
+  z-index: 20;
+  display: block;
+  pointer-events: none;
+}
+
+.note-timer-track {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 3px;
+  height: 100%;
+}
+
+.note-timer-segment {
+  position: relative;
+  min-height: 2px;
+  flex: 1 1 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2a2a2a;
+}
+
+.note-timer-segment .note-timer-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-height: 0;
+  border-radius: inherit;
+  background: #b7741d;
+  transition: height 300ms ease;
+}
+
+.note-timer-rail.paused .note-timer-segment .note-timer-fill {
+  background: #8f8f8f;
+}
+
+.note-timer-rail.done .note-timer-segment .note-timer-fill,
+.note-timer-rail.idle .note-timer-segment .note-timer-fill {
+  background: #4a4a4a;
 }
 
 .title-stack {
@@ -441,9 +489,13 @@ button:disabled {
   display: block;
   width: 100%;
   height: 1px;
-  margin: 18px 0;
+  box-sizing: content-box;
+  margin: 8px 0;
+  padding: 10px 0;
   border: 0;
   background: #4a4a4a;
+  background-clip: content-box;
+  cursor: pointer;
 }
 
 .editor-surface .ProseMirror-selectednode {
@@ -456,6 +508,52 @@ button:disabled {
   height: 2px;
   border-radius: 999px;
   background: #b7741d;
+  background-clip: content-box;
+}
+
+.editor-surface a[data-type="link-chip"] {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(100%, 360px);
+  height: 24px;
+  vertical-align: -0.08em;
+  gap: 7px;
+  border: 1px solid #343434;
+  border-radius: 999px;
+  background: #1b1b1b;
+  color: #e8e8e8;
+  padding: 0 10px 0 7px;
+  font-size: 0.88em;
+  font-weight: 620;
+  line-height: 24px;
+  text-decoration: none;
+  user-select: none;
+  cursor: pointer;
+}
+
+.editor-surface a[data-type="link-chip"]:hover {
+  border-color: #4a4a4a;
+  background: #222222;
+}
+
+.editor-surface a[data-type="link-chip"].ProseMirror-selectednode {
+  border-color: #b7741d;
+  background: #241d14;
+}
+
+.editor-surface a[data-type="link-chip"] img {
+  display: block;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.editor-surface a[data-type="link-chip"] span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .editor-surface figure[data-type="note-image"] {
@@ -803,6 +901,15 @@ button:disabled {
   outline: none;
 }
 
+.context-menu-folder::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: -12px;
+  bottom: -6px;
+  width: 16px;
+}
+
 .context-menu-folder:hover,
 .context-menu-folder:focus {
   background: #2a2a2a;
@@ -843,9 +950,9 @@ button:disabled {
 .context-submenu {
   position: absolute;
   top: -6px;
-  left: calc(100% + 8px);
+  left: calc(100% + 4px);
   display: none;
-  width: 182px;
+  width: 220px;
   border: 1px solid #3a3a3a;
   border-radius: 8px;
   background: #181818;
