@@ -622,6 +622,7 @@ export function App() {
 
           if (href) {
             event.preventDefault()
+            event.stopPropagation()
             window.open(href, '_blank', 'noopener,noreferrer')
             return true
           }

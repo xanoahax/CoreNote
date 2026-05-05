@@ -511,7 +511,7 @@ button:disabled {
   background-clip: content-box;
 }
 
-.editor-surface a[data-type="link-chip"] {
+.editor-surface [data-type="link-chip"] {
   display: inline-flex;
   align-items: center;
   max-width: min(100%, 360px);
@@ -531,17 +531,17 @@ button:disabled {
   cursor: pointer;
 }
 
-.editor-surface a[data-type="link-chip"]:hover {
+.editor-surface [data-type="link-chip"]:hover {
   border-color: #4a4a4a;
   background: #222222;
 }
 
-.editor-surface a[data-type="link-chip"].ProseMirror-selectednode {
+.editor-surface [data-type="link-chip"].ProseMirror-selectednode {
   border-color: #b7741d;
   background: #241d14;
 }
 
-.editor-surface a[data-type="link-chip"] img {
+.editor-surface [data-type="link-chip"] img {
   display: block;
   width: 15px;
   height: 15px;
@@ -550,7 +550,7 @@ button:disabled {
   object-fit: contain;
 }
 
-.editor-surface a[data-type="link-chip"] span {
+.editor-surface [data-type="link-chip"] span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

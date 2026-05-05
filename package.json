@@ -1,6 +1,6 @@
 {
   "name": "corenote",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A minimal local-first notes app for Windows.",
   "main": "./out/main/index.js",
   "author": "Noah Langthaler",

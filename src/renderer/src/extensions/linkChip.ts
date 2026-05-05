@@ -64,13 +64,16 @@ export const LinkChip = Node.create({
   addAttributes() {
     return {
       href: {
-        default: ''
+        default: '',
+        parseHTML: (element) => element.getAttribute('href') ?? element.getAttribute('data-href') ?? ''
       },
       label: {
-        default: ''
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-label') ?? element.textContent ?? ''
       },
       faviconUrl: {
-        default: ''
+        default: '',
+        parseHTML: (element) => element.getAttribute('data-favicon-url') ?? ''
       }
     }
   },
@@ -79,6 +82,9 @@ export const LinkChip = Node.create({
     return [
       {
         tag: 'a[data-type="link-chip"]'
+      },
+      {
+        tag: 'span[data-type="link-chip"]'
       }
     ]
   },
@@ -87,13 +93,14 @@ export const LinkChip = Node.create({
     const { href, label, faviconUrl, ...attributes } = HTMLAttributes
 
     return [
-      'a',
+      'span',
       mergeAttributes(attributes, {
         'data-type': 'link-chip',
-        href,
+        'data-href': href,
+        'data-label': label,
+        'data-favicon-url': faviconUrl,
         title: href,
-        target: '_blank',
-        rel: 'noreferrer'
+        role: 'link'
       }),
       ['img', { src: faviconUrl, alt: '', draggable: 'false' }],
       ['span', {}, label || href]
